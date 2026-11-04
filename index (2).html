@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Salva al oso polar</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#0d3b5c;display:flex;justify-content:center}
+#game{position:relative;width:100%;max-width:480px;height:100vh;height:100dvh;overflow:hidden;background:linear-gradient(#bfe3f2,#e8f6fb 70%);user-select:none;-webkit-user-select:none;touch-action:none}
+#hud{position:absolute;top:0;left:0;right:0;padding:10px 14px;z-index:5;background:rgba(255,255,255,.85);display:flex;gap:12px;align-items:center;font-size:14px;color:#0d3b5c;font-weight:600}
+.bar{flex:1;height:14px;border-radius:7px;background:#cfe3ee;overflow:hidden}
+#icefill{height:100%;width:100%;background:#4fb3e8;transition:width .3s}
+#field{position:absolute;inset:0}
+.item{position:absolute;left:0;top:0;font-size:44px;line-height:1;padding:4px;pointer-events:none}
+#sea{position:absolute;left:0;right:0;bottom:0;height:22%;background:linear-gradient(#2a8fc7,#14527f);z-index:2;pointer-events:none}
+#player{position:absolute;left:0;bottom:13%;width:0;height:0;z-index:3;pointer-events:none}
+#floe{position:absolute;left:0;bottom:0;height:30px;background:#fff;border-radius:50% 50% 40% 40%;transform:translateX(-50%);box-shadow:0 4px 0 #cfe6f1;transition:width .4s,background .15s}
+#bear{position:absolute;left:0;bottom:18px;font-size:56px;line-height:1;transform:translateX(-50%)}
+#game.hit #floe{background:#ffd0d0}
+#fact{position:absolute;top:56px;left:12px;right:12px;z-index:6;background:rgba(255,255,255,.95);color:#0d3b5c;border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.4;display:none}
+#screen{position:absolute;inset:0;z-index:10;background:rgba(10,50,80,.92);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;gap:14px}
+#screen h1{font-size:28px}
+#screen p{font-size:15px;line-height:1.5;max-width:340px}
+#ctrl{font-size:14px;background:rgba(255,255,255,.12);border-radius:12px;padding:10px 14px;max-width:340px}
+button{font-size:18px;padding:12px 30px;border:0;border-radius:999px;background:#7fd1a6;color:#0d3b5c;font-weight:700;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="hud"><span>Hielo</span><div class="bar"><div id="icefill"></div></div><span>&#128167; <b id="sc">0</b>/40</span></div>
+  <div id="fact"></div>
+  <div id="field"></div>
+  <div id="sea"></div>
+  <div id="player"><div id="floe"></div><div id="bear">&#128059;&#8205;&#10052;&#65039;</div></div>
+  <div id="screen">
+    <h1 id="t">Salva al oso polar</h1>
+    <p id="m">El agua viaja en un ciclo: se evapora, forma nubes, cae y vuelve al mar. Pero la contaminaci&oacute;n calienta el planeta y derrite el hielo donde vive el oso.<br><br><b>Esquiva</b> lo que da&ntilde;a (&#127981; &#129380; &#128738;&#65039; &#128663;) y <b>atrapa</b> lo que ayuda (&#127795; &#9851;&#65039; &#9728;&#65039; &#128690;) para reforzar el hielo.</p>
+    <div id="ctrl">&#128241; Celular: inclina el tel&eacute;fono (en vertical)<br>&#128187; PC: flechas &larr; &rarr; o teclas A y D<br>&#9757;&#65039; Si no hay sensor: arrastra el dedo</div>
+    <button id="btn">Jugar</button>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const game=$('game'),field=$('field'),floe=$('floe'),bear=$('bear'),pl=$('player'),screen=$('screen'),fact=$('fact');
+const GOOD=['🌳','♻️','☀️','🚲'],BAD=['🏭','🥤','🛢️','🚗'];
+const GOAL=40,MARKS=[6,14,22,30,36];
+const FACTS=[
+ '☀️ Evaporación: el Sol calienta el mar y el agua sube convertida en vapor.',
+ '☁️ Condensación: el vapor se enfría en el aire y forma las nubes.',
+ '🌨️ Precipitación: el agua cae como lluvia o nieve. En el Ártico, la nieve alimenta los glaciares.',
+ '🏞️ Escurrimiento: el agua corre por ríos y regresa al mar.',
+ '🌱 Infiltración: parte del agua entra al suelo y llena los mantos acuíferos.'
+];
+let items=[],ice=100,score=0,run=false,last=0,acc=0,shown=0,ft;
+let px=0,tilt=0,tiltActive=false,tiltOn=false;
+const keys={left:false,right:false};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+function setHud(){
+  $('icefill').style.width=ice+'%';
+  floe.style.width=(110+ice*1.0)+'px';
+  $('sc').textContent=score;
+}
+function showFact(){
+  while(shown<MARKS.length&&score>=MARKS[shown]){
+    fact.textContent=FACTS[shown];fact.style.display='block';
+    clearTimeout(ft);ft=setTimeout(()=>{fact.style.display='none'},5500);
+    shown++;
+  }
+}
+function onTilt(e){
+  if(e.gamma===null||e.gamma===undefined)return;
+  tiltActive=true;
+  const g=e.gamma,a=Math.abs(g);
+  tilt=a<3?0:Math.sign(g)*clamp((a-3)/22,0,1);
+}
+async function enableTilt(){
+  if(tiltOn)return;
+  if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
+    try{const r=await DeviceOrientationEvent.requestPermission();if(r!=='granted')return}catch(err){return}
+  }
+  window.addEventListener('deviceorientation',onTilt);
+  tiltOn=true;
+}
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='arrowleft'||k==='a'){keys.left=true;e.preventDefault()}
+  if(k==='arrowright'||k==='d'){keys.right=true;e.preventDefault()}
+});
+window.addEventListener('keyup',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='arrowleft'||k==='a')keys.left=false;
+  if(k==='arrowright'||k==='d')keys.right=false;
+});
+game.addEventListener('pointermove',e=>{
+  if(!run||tiltActive)return;
+  if(e.pointerType==='mouse'&&e.buttons===0)return;
+  const r=game.getBoundingClientRect();
+  px=clamp(e.clientX-r.left,34,field.clientWidth-34);
+});
+function spawn(){
+  const bad=Math.random()<0.62;
+  const list=bad?BAD:GOOD;
+  const el=document.createElement('div');
+  el.className='item';
+  el.textContent=list[Math.floor(Math.random()*list.length)];
+  const x=Math.random()*(field.clientWidth-56);
+  const it={el,x,y:-60,bad,v:90+score*2.5+Math.random()*40};
+  field.appendChild(el);items.push(it);
+}
+function remove(it){it.el.remove();items=items.filter(i=>i!==it)}
+function loop(t){
+  if(!run)return;
+  const dt=Math.min((t-last)/1000,.05);last=t;acc+=dt;
+  const W=field.clientWidth,H=field.clientHeight;
+  if(acc>Math.max(.5,1.0-score*.012)){acc=0;spawn()}
+  const key=(keys.right?1:0)-(keys.left?1:0);
+  const inp=key!==0?key:tilt;
+  px=clamp(px+inp*480*dt,34,W-34);
+  pl.style.transform='translateX('+px+'px)';
+  const br=bear.getBoundingClientRect(),gr=game.getBoundingClientRect();
+  const bt=br.top-gr.top+8,bb=br.bottom-gr.top-4;
+  for(const it of items.slice()){
+    it.y+=it.v*dt;
+    it.el.style.transform='translate('+it.x+'px,'+it.y+'px)';
+    const ix=it.x+26,iy1=it.y+8,iy2=it.y+46;
+    if(iy2>bt&&iy1<bb&&Math.abs(ix-px)<52){
+      remove(it);
+      if(it.bad){
+        ice=Math.max(0,ice-20);
+        game.classList.add('hit');setTimeout(()=>game.classList.remove('hit'),180);
+        if(navigator.vibrate)navigator.vibrate(80);
+      }else{
+        ice=Math.min(100,ice+6);score+=3;
+      }
+      setHud();showFact();
+      if(ice<=0){end(false);return}
+      if(score>=GOAL){end(true);return}
+    }else if(it.y>H*0.9){
+      remove(it);
+      if(it.bad){score+=1;setHud();showFact();if(score>=GOAL){end(true);return}}
+    }
+  }
+  requestAnimationFrame(loop);
+}
+function start(){
+  items.forEach(i=>i.el.remove());items=[];
+  ice=100;score=0;shown=0;acc=0;run=true;
+  px=field.clientWidth/2;
+  fact.style.display='none';screen.style.display='none';
+  setHud();last=performance.now();requestAnimationFrame(loop);
+}
+function end(win){
+  run=false;items.forEach(i=>i.el.remove());items=[];
+  $('t').textContent=win?'¡Lo lograste!':'El hielo se derritió';
+  $('m').innerHTML=win
+   ?'Salvaste el hogar del oso polar. Cuidar el agua, plantar árboles, reciclar y reducir la contaminación ayuda a que el ciclo del agua siga en equilibrio.<br><br>Pequeñas acciones, gran impacto.'
+   :'La contaminación calentó el planeta y el hielo desapareció. En la vida real, cada acción para cuidar el agua y el aire cuenta. ¡Inténtalo de nuevo!';
+  $('btn').textContent='Jugar otra vez';
+  screen.style.display='flex';
+}
+$('btn').addEventListener('click',()=>{enableTilt();start()});
+px=field.clientWidth/2;
+pl.style.transform='translateX('+px+'px)';
+setHud();
+</script>
+</body>
+</html>
